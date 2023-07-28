@@ -1,0 +1,108 @@
+1.	¿De qué partes consta la KEY de una fila almacenada en una familia de columnas en Cassandra? Explica qué efectos tiene cada una sobre la base de datos.
+El valor para referenciar a una fila en Cassandra es la Row Key, que consta de dos partes:
+	Clave de particionado: Las filas con el mismo valor de clave de particionado se almacenan en la misma partición del disco. Es la que me dice en que nodo debe ir determinado valor, y dentro de ese nodo en que SSTable se va a grabar. Si se tienen dos filas con la misma partition key, se almacenan en la misma SSTable.
+	Clave de agrupamiento: Determina el orden físico en el que se almacenan las filas. Me dice el orden dentro de la SSTable 
+Recuperar una fila se hace a través de una consulta SELECT, pero en la cláusula WHERE solo aparecen las columnas que estén en la clave de fila (definidas en la partition key o sobre las que se haya definido un índice secundario). La cláusula ORDER BY se especifica por las columnas que estén incluidas en la clustering key.
+
+2.	Enumere, al menos, 3 ventajas y 3 desventajas de Cassandra con respecto a los sistemas de bases de datos relacionales.
+Ventajas de Cassandra con respecto a un sistema de bases de datos relacionales:
+1.	Asegura alta disponibilidad, ya que incluso si se pierden varios nodos siguen funcionando. Utiliza un modelo distribuido sin un solo punto de fallo, lo que significa que los datos se replican automáticamente en varios nodos en el clúster. Si un nodo falla, los datos se pueden acceder desde otros nodos réplica.
+2.	Cassandra está diseñada para escalar horizontalmente de manera eficiente. Puede manejar grandes volúmenes de datos distribuyendo la carga de trabajo entre múltiples nodos en un clúster.
+3.	Tiene un esquema dinámico, permitiendo en tiempo de ejecución cambiar fácilmente la estructura de una familia de columnas. Así, se logra tener una flexibilidad mucho mayor en el esquema de los datos. 
+
+
+Desventajas de Cassandra con respecto a un sistema de bases de datos relacionales:
+1.	No se pueden tener transacciones que implementen ACID para lecturas y escrituras. Adicionalmente, al priorizar la disponibilidad y la tolerancia a fallos, tiene consistencia eventual. Lo que significa que no garantiza la consistencia inmediata de los datos en todos los nodos del clúster.
+2.	Al estar creada para consultas rápidas de escritura y lectura en grandes volúmenes de datos distribuidos, no se tienen herramientas para hacer consultas complejas. Por ejemplo, no existe la posibilidad de realizar un JOIN. 
+3.	La consulta depende de donde esta guardado el dato, si no se tiene en cuenta esto al momento de definir las estructuras, las consultas no van a ser eficientes o bien no se van a poder realizar.
+
+3.	¿Cuáles son los componentes principales de la arquitectura de Cassandra? Explique brevemente la función de cada uno de ellos.
+Elementos de la arquitectura de Cassandra:
+	Nodo: Donde se almacenan los datos, ya sea un equipo o un grupo de equipos, también podría ser parte del disco (y se encuentra toda la estructura en una sola maquina)
+	Data Center: Colección de nodos relacionados.
+	Cluster: Componente que contiene uno más centros de datos. 
+	Commit log: Mecanismo de recuperación de fallas. Registra todas las operaciones de la base de datos. Cada operación de escritura queda en el commit log. 
+	MemTable: Estructura de datos residente en memoria, que es el bloque del archivo que recibe en memoria. Es decir, las operaciones que se grabaron en el commit log luego se graban en el MemTable.
+	SSTable: Es un archivo de disco, donde se guarda el contenido de la MemTable cuando alcanza un valor determinado. Una vez creado, son inmutables y no se pueden cambiar. SON UNA IMAGEN DE LAS MEMTABLES.
+	Filtros de bloom: Algoritmos no deterministas que se usan para probar si un elemento es miembro de un conjunto. Es decir, determina la pertenencia a un conjunto.
+
+4.	Explica la secuencia de eventos que suceden en el proceso de escritura de datos en Cassandra.
+Cada actividad de escritura de nodos es capturada por los Commit log escritos en los nodos, y se procede a almacenar en la MemTable. Siempre que la MemTable este llena, los datos se escribirán en el archivo de datos de SSTable. Todas las escrituras se parten automáticamente y se replican en todo el cluster. 
+Se tienen bloques de disco con información vieja, por lo que hay un proceso corriendo en segundo plano que elimina esos bloques de datos (Esto es porque las SSTables son inmutables). Por eso mismo, las operaciones de grabación son muy rápidas porque elimina lo viejo eventualmente (periódicamente depura bloques de disco) y directamente agrega. 
+
+5.	¿Qué mecanismos provee Cassandra para tratar de asegurar, en la medida de lo posible, la consistencia de los datos en todos los nodos?
+El objetivo de Cassandra es la tolerancia a las particiones y la disponibilidad, por lo cual, de acuerdo con el Teorema CAP, la consistencia absoluta no es posible con esta base de datos. 
+Sin embargo, utiliza ciertas técnicas para tratar de tener consistencia. Como el mismo nodo está replicado en diferentes lugares, si se detecta que alguna de las réplicas contesta un valor desactualizado, Cassandra devuelve el más reciente al cliente. Luego, se efectúa en segundo plano una operación de verificación para asegurarse que las otras replicas no tengan valores desactualizados. 
+En esto consiste el protocolo gossip, donde cada nodo le pregunta al siguiente y comparan valores. Mediante esta comunicación entre nodos, se detecta el nodo o los nodos que tengan valores desactualizados. 
+Por otro lado, cada vez que se realiza una operación de escritura, el nodo coordinador (el conectado al cliente) les dice a los demás nodos que guarden la información. El quorum de grabación va a determinar el nivel de consistencia del sistema. Si requiero muchos nodos participes en la operación, entonces voy a tener un mayor grado de consistencia. Por lo tanto, Cassandra se puede configurar para obtener más consistencia. 
+6.	Defina el concepto de Sharding y cómo afecta al rendimiento de las consultas.
+El sharding es un método para distribuir datos a través de múltiples máquinas. Utiliza fragmentación para permitir implementaciones con conjuntos de datos muy grandes y operaciones de alto rendimiento.
+Consiste en dividir horizontalmente el conjunto de datos en fragmentos más pequeños llamados "shards" o fragmentos, y distribuir esos shards en diferentes servidores. Cada shard contiene una porción de los datos totales y se encarga de manejar las operaciones de lectura y escritura asociadas a esos datos.
+Al distribuir los datos en varios servidores, se puede lograr un mejor rendimiento y capacidad de respuesta, ya que las consultas y las operaciones de escritura se pueden paralelizar y ejecutar en diferentes nodos de manera simultánea.
+El sharding afecta el rendimiento de las consultas de la siguiente manera:
+Paralelismo de consultas: Al distribuir los datos en múltiples shards, las consultas pueden ejecutarse en paralelo en diferentes nodos. Esto significa que las consultas se pueden dividir y enviar a los shards correspondientes, lo que permite procesar subconjuntos de datos de manera concurrente. Como resultado, el tiempo de respuesta de las consultas puede reducirse significativamente, especialmente cuando se trabaja con grandes volúmenes de datos.
+Distribución de carga: El sharding ayuda a distribuir la carga de trabajo de manera equitativa entre los servidores. Cada shard es responsable de un subconjunto de datos, lo que significa que los nodos pueden manejar un volumen de consultas y operaciones de escritura más manejable. Esto evita que un solo servidor se convierta en un cuello de botella y mejora la capacidad del sistema para manejar una mayor carga de trabajo.
+
+7.	Explicar cómo actúa MongoDB si el nodo primario de una réplica se cae.
+Cuando el nodo primario de una réplica en MongoDB experimenta una caída, MongoDB utiliza su sistema de elección de primario (Primary Election) para seleccionar automáticamente un nuevo nodo primario. El proceso sería así: 
+1.	Detección de la caída del primario: Los demás nodos en la réplica, conocidos como secundarios, detectan la caída del nodo primario mediante el monitoreo y la comunicación constante entre ellos. 
+2.	Inicio del proceso de elección de primario: Una vez que los secundarios detectan que el nodo primario ha caído, se inicia el proceso de elección de un nuevo primario. Durante este proceso, los secundarios intercambian mensajes entre sí para seleccionar al nuevo primario.
+3.	Elección del nuevo primario: MongoDB utiliza un algoritmo llamado "Elección de Primario basada en Votos" (Voting-Based Primary Election) para seleccionar el nuevo primario. Cada secundario emite un voto para sí mismo y puede emitir votos adicionales para otros secundarios si es necesario. Los secundarios con más votos se consideran candidatos a convertirse en el nuevo primario.
+4.	Promoción del nuevo primario: Una vez que se elige el nuevo primario, los demás secundarios actualizan su configuración interna y reconocen al nuevo primario. El nodo seleccionado se promociona a primario y asume las responsabilidades de lectura y escritura, mientras que los otros nodos siguen funcionando como secundarios.
+5.	Resincronización de datos: Si el antiguo nodo primario vuelve a estar disponible después de la caída, se reincorpora como secundario y se sincroniza con el nuevo primario para asegurar que todos los nodos tengan los mismos datos actualizados. Durante este proceso, se realizan operaciones de sincronización, como la aplicación de registros de operaciones (oplogs) o la copia de datos faltantes, para mantener la coherencia en la réplica.
+
+8.	Defina el concepto de consistencia eventual y sus diferencias con ACID.
+
+Que un sistema sea eventualmente consistente implica que la consistencia de la información es posible solo después de que pase cierta cantidad de tiempo. Este tipo de consistencia se utiliza en casos donde no se requiere que la información sea SIEMPRE correcta, como las redes sociales, por ejemplo. 
+En cambio, ACID implica siempre pasar de un estado consistente a otro, evaluando la consistencia al inicio y al final de la operación. Además, se tiene atomicidad (se hace todo o nada), aislamiento de transacciones y durabilidad de las mismas. Esto asegura que siempre se acceda a información correcta. 
+En particular, la consistencia eventual se utiliza para equilibrar la disponibilidad y el rendimiento en entornos distribuidos, con el costo de tener momentos de inconsistencia. ACID garantiza la integridad y consistencia inmediata de los datos, pero no es tan eficiente en sistemas altamente distribuidos o escalables. 
+
+9.	Enumere ventajas y desventajas de implementar bases de datos con Neo4j con respecto a su implementación en un gestor relacional.
+Ventajas de Neo4j:
+•	Modelado en base a grafos: Neo4j permite modelar los datos como grafos, lo que es ideal para representar relaciones complejas entre entidades. Esto hace que sea más fácil representar y comprender datos interconectados, de forma flexible. Por ejemplo, redes sociales o laborales (que pueden cambiar a futuro). 
+•	Rendimiento en consultas de relaciones: Altamente eficientes para consultas que involucran relaciones y dependencias complejas entre entidades, lo que puede resultar en una mejora significativa del rendimiento en comparación con las bases de datos relacionales. Por eso, se pueden utilizar para motores de recomendación, por ejemplo. 
+•	Búsquedas recursivas: En una base de datos orientada a grafos, las búsquedas recursivas con n niveles son más fáciles y eficientes que en un producto relacional, con el cual tomarían muchos joins para realizar la consulta. 
+Desventajas de Neo4j:
+•	En sistemas que requieren de actualizaciones masivas sobre todas las entidades resulta poco eficiente. 
+•	Neo4j es una base de datos orientada a grafos, y por lo general, está diseñada para priorizar la consistencia y la disponibilidad sobre la tolerancia a particiones. Por lo tanto, se enmarca dentro del modelo de CP (Consistency and Partition Tolerance). Esto significa que, en situaciones de partición en la red, Neo4j priorizará la consistencia de los datos entre los nodos, incluso si eso significa que algunos nodos no están disponibles temporalmente. Esto asegura que los datos en el clúster Neo4j siempre estén en un estado coherente.
+
+10.	Describa los elementos esenciales del modelo de datos basado en grafos y explica los criterios generales de diseño.
+En todo modelo de datos basado en grafos se tiene:
+•	Nodos: Los nodos son las entidades de las cuales se quiere guardar información. Los conceptos de un negocio, como los clientes, usuarios, productos pueden ser representados mediante nodos. 
+•	Propiedades de los nodos: Cada nodo puede tener varias propiedades, o atributos. 
+•	Aristas entre nodos: Son las relaciones de las bases de datos, conectando nodos con cierta dirección. Este vínculo entre nodos nos permite encontrar patrones entre los mismos. 
+•	Propiedades de las aristas: Las aristas también pueden tener atributos por sí misma, brindando incluso más información sobre las relaciones entre nodos. 
+
+11.	Explique la diferencia entre las restricciones UNIQUE y KEY NODE en Cypher.
+Tanto las restricciones UNIQUE como KEY NODE se utilizan para garantizar la unicidad de valores en la base de datos, pero se utilizan en contextos diferentes. 
+La restricción UNIQUE garantiza que los valores de una propiedad específica en los nodos o relaciones sean únicos en toda la base de datos. Esto significa que no puede haber dos nodos o relaciones con el mismo valor para la propiedad especificada. Si intentas crear o actualizar un nodo o relación con un valor que ya existe en esa propiedad, la operación fallará y no se permitirá la duplicación.
+La restricción KEY NODE es una característica específica de Neo4j y se utiliza para garantizar la unicidad de un nodo completo. Es decir, se asegura de que no haya dos nodos con las mismas propiedades y etiquetas combinadas. Esta restricción va más allá de simplemente asegurar que una propiedad específica sea única, ya que verifica toda la estructura del nodo.
+Es importante tener en cuenta que, aunque ambas restricciones tienen como objetivo garantizar la unicidad de datos en la base de datos, la restricción UNIQUE se aplica a una propiedad específica, mientras que la restricción KEY NODE abarca toda la estructura de un nodo, permitiendo verificar combinaciones de propiedades que deben ser únicas en conjunto.
+12.	Explique en qué consiste Map Reduce.
+MapReduce es un modelo de programación y procesamiento de datos utilizado para realizar tareas de procesamiento distribuido en grandes conjuntos de datos, fundamental para soluciones de Big Data. Consiste en dos etapas, que permiten la ejecución paralela y escalable de operaciones en clústeres de servidores:
+•	Map: Realiza una operación de filtrado y transformación sobre cada uno de los elementos de entrada, generando pares clave-valor intermedios.
+•	Reduce: Combina y procesa los pares clave-valor con la misma clave, generando un conjunto de resultados reducidos.
+
+13.	Describa las técnicas de modelado de una base de datos de familias de columnas basado en las recomendaciones de Chebokto.
+La notación de Artem Chebotko es una de las más utilizadas para capturar modelos de datos. Permite visualizar las relaciones entre consultas y tablas de los diseños.  
+Cada tabla tiene su nombre y una lista de columnas. Las columnas de clave principal se identifican como K, mientras que las columnas de clave de ordenamiento se identifican con la letra C. Además, las flechas indican el sentido del orden. 
+14.	Explique en qué consiste Hadoop / Map Reduce. De un ejemplo sobre su funcionamiento individual y su forma de interactuar.
+Hadoop es un framework de almacenamiento de información distribuida y el procesamiento de grandes conjuntos de datos. El núcleo de Hadoop se basa en el modelo de programación MapReduce, que es una técnica para procesar datos de manera paralela y escalable en entornos distribuidos.
+El funcionamiento de Hadoop y MapReduce se puede describir en las siguientes etapas:
+1.	Etapa Map: En esta fase, los datos se dividen en fragmentos más pequeños, llamados "splits", que se distribuyen a los nodos del clúster. Cada nodo ejecuta una función de "Map" que procesa los datos en paralelo. La función de Map toma el conjunto de datos de entrada y produce pares clave-valor intermedios.
+2.	Etapa Reduce: En esta fase, los datos agrupados con la misma clave se procesan por separado en cada nodo del clúster. Cada nodo ejecuta una función de "Reduce" que combina los pares clave-valor con la misma clave y realiza una operación de agregación o análisis más complejo. Los resultados reducidos se envían a una salida global, que representa el resultado final del procesamiento.
+
+15.	Defina el tipo de modelado de una base de datos documentales. Que criterios utilizaría para determinar si se debe incrustar o referenciar.
+En primer lugar, como todo producto NoSQL se deben tener en cuenta las consultas que se van a realizar, es decir, qué se va a actualizar y recuperar. 
+Incrustar consiste en que un documento tenga una lista de documentos como uno de sus valores en alguno de sus campos. Esto aumenta el tamaño del documento, pero es más rapido al momento de recuperar operación, al tener una sola operación de lectura. Por lo cual, si los datos a incrustar son demasiado grandes, no conviene incrustar. El tamaño máximo que puede tener un documento es 16MB, sino se debe pasar a GridFS. 
+Referenciar implica tener una lista con referencias a los ids de diferentes documentos, en vez de tener todo el documento. Esto reduce el tamaño del documento, pero es más lento a la hora de leer. Esto es porque por cada id se agrega una operación de lectura. 
+Una de las cosas que se deben tener en cuenta es que tan seguido va a cambiar la información de un documento. Si la información es volátil, sería conveniente referenciar para que el documento sea más fácil de mantener. En cambio, si la información no cambia tanto y es propia del documento en si, entonces conviene incrustar. 
+Por último, se debe tener en cuenta las relaciones entre las entidades de la base de datos. Si la relación es de 1 a 1, generalmente se suelen incrustar. En el caso de 1 a muchos, depende de la naturaleza del documento en si. Si la relación es de muchos a muchos, se suele referenciar. 
+16.	¿Qué es aggregation framework y cómo funciona?
+El Aggregation Framework es una herramienta utilizada en MongoDB para realizar operaciones de agregación y análisis avanzadas sobre los datos almacenados. El Aggregation Framework permite realizar cálculos complejos y transformaciones de datos en tiempo real, sin necesidad de extraer y procesar los datos en una aplicación externa.
+El Aggregation Framework funciona de manera similar a las operaciones de consulta, pero con la capacidad de realizar operaciones de agregación y transformaciones más avanzadas. Utiliza una sintaxis expresiva y flexible basada en operaciones de agregación, que se representan como una secuencia de etapas de pipeline. Cada etapa aplica una operación específica a los documentos de entrada y pasa los resultados a la siguiente etapa.
+17.	Defina el concepto de Quorum y en que escenarios se presenta.
+En el contexto de bases de datos distribuidas y sistemas de almacenamiento, el concepto de "quorum" se refiere a la cantidad mínima de réplicas de datos que deben participar en una operación de lectura o escritura para considerarla exitosa y garantizar la coherencia y disponibilidad de los datos. 
+El quorum es un mecanismo fundamental para garantizar la consistencia y tolerancia a fallas en sistemas distribuidos donde los datos se replican en múltiples nodos o servidores para mejorar la escalabilidad y la disponibilidad. Cuando se realiza una operación de lectura o escritura, el sistema requiere que un número mínimo de réplicas participe para asegurarse de que la operación sea válida y que los datos estén actualizados y coherentes en todas las réplicas. Se tienen: 
+•	Quorum de escritura: En una operación de escritura, el quórum se refiere al número mínimo de réplicas que deben confirmar la escritura antes de considerarla exitosa.
+•	Quorum de lectura: En una operación de lectura, el quórum se refiere al número mínimo de réplicas de las cuales se deben leer los datos para que la lectura se considere válida y coherente.
